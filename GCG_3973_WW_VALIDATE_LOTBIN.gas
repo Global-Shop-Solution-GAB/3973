@@ -1,0 +1,210 @@
+Program.Sub.ScreenSU.Start
+Program.Sub.ScreenSU.End
+
+Program.Sub.Preflight.Start
+
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+'quote 5772
+'coded by SFF
+'validate LOT BIN PROGRAM Customer Specific
+
+
+F.Intrinsic.Control.SetErrorHandler("Main_Err")
+F.Intrinsic.Control.ClearErrors
+
+V.Local.sError.Declare(String)
+
+V.Local.sRet.Declare(String)
+V.Local.sRet2.Declare(String)
+V.Local.sRet3.Declare(String)
+V.Local.sSql.Declare(String)
+V.Local.i.Declare(Long)
+V.Local.i2.Declare(Long)
+V.Local.iRowCnt.Declare(Long)
+V.local.sReadRow.Declare(String)
+V.Local.sIssue.Declare(String)
+V.Local.sWriteRow.Declare(String)
+
+
+
+'program will validate that user is selecting from 1 lot only when the comments_3 field of the job_header contains 'NO MIXED or NO MIXED HEAT or NO MIXED HEATS'
+' if nothing in the comments_3 field matches any of those entries program wil function as normal and user can select from multiple lot/bins
+
+F.ODBC.Connection!conX.OpenConnection(V.Ambient.PDSN,V.Ambient.PUser,V.Ambient.PPass)
+
+F.Intrinsic.Control.If(V.Passed.WORK-ORDER.Trim,>,"", "AND", V.Passed.SUFFIX.Trim,>,"")
+	F.Intrinsic.String.Concat("select ucase(comments_3) as comments_3 from v_job_header where job = '",V.Passed.WORK-ORDER.Trim,"' and suffix = '",V.Passed.SUFFIX.Trim,"'",V.Local.sSql)
+	F.ODBC.Connection!conX.OpenRecordsetRO("rst",V.Local.sSql)
+	'check to see if there is a record in comments_3 of job header for the program.
+	F.Intrinsic.Control.If(V.ODBC.conX!rst.EOF,=,True)
+		F.Intrinsic.UI.Msgbox("No Records Exist for this Job","Information")
+		F.ODBC.conX!rst.Close
+		F.Intrinsic.Control.End
+	F.Intrinsic.Control.Else
+		V.Local.sRet.Set(V.ODBC.conX!rst.FieldValTrim!COMMENTS_3)
+	
+		F.intrinsic.control.If(V.Local.sRet,=,"NO MIXED HEAT LOTS")
+			F.ODBC.conX!rst.Close
+			F.Intrinsic.BDF.Load("AUX001","AUX001")
+			F.Intrinsic.BDF.Clone("AUX001","Clone")
+			F.Intrinsic.BDF.ReadRowCount("AUX001",V.Local.iRowCnt)
+			F.Intrinsic.Math.Sub(V.Local.iRowCnt,1,V.Local.iRowCnt)
+			F.Intrinsic.Control.If(V.Local.iRowCnt,>,-1)
+				F.Intrinsic.Control.For(V.Local.i2,0,V.Local.iRowCnt,1)
+						F.Intrinsic.BDF.ReadRow("AUX001",V.Local.i2,V.Local.sReadRow)
+						F.Intrinsic.String.Split(V.Local.sReadRow,"|~|",V.Local.sReadRow)
+						F.Intrinsic.Control.If(V.Local.sReadRow(13),>,0)
+							F.Intrinsic.Math.Add(V.Local.i,1,V.Local.i)
+						F.Intrinsic.Control.EndIf
+				F.Intrinsic.Control.Next(V.Local.i2)
+				F.Intrinsic.Control.If(V.Local.i,>,1)
+					V.Local.i.Set(0)
+					F.Intrinsic.BDF.ReadRowCount("AUX001",V.Local.iRowCnt)
+					F.Intrinsic.Math.Sub(V.Local.iRowCnt,1,V.Local.iRowCnt)
+					F.Intrinsic.Control.For(V.Local.i,0,V.Local.iRowCnt,1)
+						F.Intrinsic.BDF.ReadRow("AUX001",V.Local.i,V.Local.sReadRow)
+						F.Intrinsic.String.Split(V.Local.sReadRow,"|~|",V.Local.sReadRow)
+						V.Local.sReadRow(13).Set(0.0000)
+						F.Intrinsic.String.Concat(V.Local.sReadRow(0),"|~|",V.Local.sReadRow(1),"|~|",V.Local.sReadRow(2),"|~|",V.Local.sReadRow(3),"|~|",V.Local.sReadRow(4),"|~|",V.Local.sReadRow(5),"|~|",V.Local.sReadRow(6),"|~|",V.Local.sReadRow(7),"|~|",V.Local.sReadRow(8),"|~|",V.Local.sReadRow(9),"|~|",V.Local.sReadRow(10),"|~|",V.Local.sReadRow(11),"|~|",V.Local.sReadRow(12),"|~|",V.Local.sReadRow(13),"|~|",V.Local.sReadRow(14),V.Local.sReadRow(16),"|~|",V.Local.sReadRow(15),"|~|",V.Local.sReadRow(16),"|~|",V.Local.sReadRow(17),"|~|",V.Local.sReadRow(18),V.Local.sWriteRow)
+						F.Intrinsic.BDF.WriteRow("Clone",V.Local.sWriteRow)
+					F.Intrinsic.Control.Next(V.Local.i)
+					F.Intrinsic.BDF.Save("Clone","AUX001")
+					V.Passed.777777.Set(1)
+					F.Intrinsic.UI.Msgbox("NO MIXED HEATS- Multiple Certs Not Allowed!","NO MIXED HEATS")
+				F.Intrinsic.Control.Else
+					F.Intrinsic.Control.End
+				F.Intrinsic.Control.EndIf
+			F.Intrinsic.Control.Else
+				F.Intrinsic.Control.End
+			F.Intrinsic.Control.EndIf
+
+	
+		F.Intrinsic.Control.ElseIf(V.Local.sRet,=,"NO MIXED")
+			F.ODBC.conX!rst.Close
+			'read bdf from core screen and see if multiple quantites are selected from different lot/bins, if so then set issue quantity back to 0.00 and do not let user save.
+			F.Intrinsic.BDF.Load("AUX001","AUX001")
+			F.Intrinsic.BDF.Clone("AUX001","Clone")
+			F.Intrinsic.BDF.ReadRowCount("AUX001",V.Local.iRowCnt)
+			F.Intrinsic.Math.Sub(V.Local.iRowCnt,1,V.Local.iRowCnt)
+			F.Intrinsic.Control.If(V.Local.iRowCnt,>,-1)
+				F.Intrinsic.Control.For(V.Local.i2,0,V.Local.iRowCnt,1)
+						F.Intrinsic.BDF.ReadRow("AUX001",V.Local.i2,V.Local.sReadRow)
+						F.Intrinsic.String.Split(V.Local.sReadRow,"|~|",V.Local.sReadRow)
+						F.Intrinsic.Control.If(V.Local.sReadRow(13),>,0)
+							F.Intrinsic.Math.Add(V.Local.i,1,V.Local.i)
+						F.Intrinsic.Control.EndIf
+				F.Intrinsic.Control.Next(V.Local.i2)
+				F.Intrinsic.Control.If(V.Local.i,>,1)
+					V.Local.i.Set(0)
+					F.Intrinsic.BDF.ReadRowCount("AUX001",V.Local.iRowCnt)
+					F.Intrinsic.Math.Sub(V.Local.iRowCnt,1,V.Local.iRowCnt)
+					F.Intrinsic.Control.For(V.Local.i,0,V.Local.iRowCnt,1)
+						F.Intrinsic.BDF.ReadRow("AUX001",V.Local.i,V.Local.sReadRow)
+						F.Intrinsic.String.Split(V.Local.sReadRow,"|~|",V.Local.sReadRow)
+						V.Local.sReadRow(13).Set(0.0000)
+						F.Intrinsic.String.Concat(V.Local.sReadRow(0),"|~|",V.Local.sReadRow(1),"|~|",V.Local.sReadRow(2),"|~|",V.Local.sReadRow(3),"|~|",V.Local.sReadRow(4),"|~|",V.Local.sReadRow(5),"|~|",V.Local.sReadRow(6),"|~|",V.Local.sReadRow(7),"|~|",V.Local.sReadRow(8),"|~|",V.Local.sReadRow(9),"|~|",V.Local.sReadRow(10),"|~|",V.Local.sReadRow(11),"|~|",V.Local.sReadRow(12),"|~|",V.Local.sReadRow(13),"|~|",V.Local.sReadRow(14),V.Local.sReadRow(16),"|~|",V.Local.sReadRow(15),"|~|",V.Local.sReadRow(16),"|~|",V.Local.sReadRow(17),"|~|",V.Local.sReadRow(18),V.Local.sWriteRow)
+						F.Intrinsic.BDF.WriteRow("Clone",V.Local.sWriteRow)
+					F.Intrinsic.Control.Next(V.Local.i)
+					F.Intrinsic.BDF.Save("Clone","AUX001")
+					V.Passed.777777.Set(1)
+					F.Intrinsic.UI.Msgbox("NO MIXED HEATS- Multiple Certs Not Allowed!","NO MIXED HEATS")
+				F.Intrinsic.Control.Else
+					F.Intrinsic.Control.End
+				F.Intrinsic.Control.EndIf
+			F.Intrinsic.Control.Else
+				F.Intrinsic.Control.End
+			F.Intrinsic.Control.EndIf
+
+
+		F.intrinsic.control.elseif(V.local.sRet,=,"NO MIXED HEAT")
+			F.ODBC.conX!rst.Close
+			F.Intrinsic.BDF.Load("AUX001","AUX001")
+			F.Intrinsic.BDF.Clone("AUX001","Clone")
+			F.Intrinsic.BDF.ReadRowCount("AUX001",V.Local.iRowCnt)
+			F.Intrinsic.Math.Sub(V.Local.iRowCnt,1,V.Local.iRowCnt)
+			F.Intrinsic.Control.If(V.Local.iRowCnt,>,-1)
+				F.Intrinsic.Control.For(V.Local.i2,0,V.Local.iRowCnt,1)
+						F.Intrinsic.BDF.ReadRow("AUX001",V.Local.i2,V.Local.sReadRow)
+						F.Intrinsic.String.Split(V.Local.sReadRow,"|~|",V.Local.sReadRow)
+						F.Intrinsic.Control.If(V.Local.sReadRow(13),>,0)
+							F.Intrinsic.Math.Add(V.Local.i,1,V.Local.i)
+						F.Intrinsic.Control.EndIf
+				F.Intrinsic.Control.Next(V.Local.i2)
+				F.Intrinsic.Control.If(V.Local.i,>,1)
+					V.Local.i.Set(0)
+					F.Intrinsic.BDF.ReadRowCount("AUX001",V.Local.iRowCnt)
+					F.Intrinsic.Math.Sub(V.Local.iRowCnt,1,V.Local.iRowCnt)
+					F.Intrinsic.Control.For(V.Local.i,0,V.Local.iRowCnt,1)
+						F.Intrinsic.BDF.ReadRow("AUX001",V.Local.i,V.Local.sReadRow)
+						F.Intrinsic.String.Split(V.Local.sReadRow,"|~|",V.Local.sReadRow)
+						V.Local.sReadRow(13).Set(0.0000)
+						F.Intrinsic.String.Concat(V.Local.sReadRow(0),"|~|",V.Local.sReadRow(1),"|~|",V.Local.sReadRow(2),"|~|",V.Local.sReadRow(3),"|~|",V.Local.sReadRow(4),"|~|",V.Local.sReadRow(5),"|~|",V.Local.sReadRow(6),"|~|",V.Local.sReadRow(7),"|~|",V.Local.sReadRow(8),"|~|",V.Local.sReadRow(9),"|~|",V.Local.sReadRow(10),"|~|",V.Local.sReadRow(11),"|~|",V.Local.sReadRow(12),"|~|",V.Local.sReadRow(13),"|~|",V.Local.sReadRow(14),V.Local.sReadRow(16),"|~|",V.Local.sReadRow(15),"|~|",V.Local.sReadRow(16),"|~|",V.Local.sReadRow(17),"|~|",V.Local.sReadRow(18),V.Local.sWriteRow)
+						F.Intrinsic.BDF.WriteRow("Clone",V.Local.sWriteRow)
+					F.Intrinsic.Control.Next(V.Local.i)
+					F.Intrinsic.BDF.Save("Clone","AUX001")
+					V.Passed.777777.Set(1)
+					F.Intrinsic.UI.Msgbox("NO MIXED HEATS- Multiple Certs Not Allowed!","NO MIXED HEATS")
+				F.Intrinsic.Control.Else
+					F.Intrinsic.Control.End
+				F.Intrinsic.Control.EndIf
+			F.Intrinsic.Control.Else
+				F.Intrinsic.Control.End
+			F.Intrinsic.Control.EndIf
+	
+
+		F.intrinsic.control.elseif(V.Local.sRet,=,"NO MIXED HEATS")
+			F.ODBC.conX!rst.Close
+			F.Intrinsic.BDF.Load("AUX001","AUX001")
+			F.Intrinsic.BDF.Clone("AUX001","Clone")
+			F.Intrinsic.BDF.ReadRowCount("AUX001",V.Local.iRowCnt)
+			F.Intrinsic.Math.Sub(V.Local.iRowCnt,1,V.Local.iRowCnt)
+			F.Intrinsic.Control.If(V.Local.iRowCnt,>,-1)
+				F.Intrinsic.Control.For(V.Local.i2,0,V.Local.iRowCnt,1)
+						F.Intrinsic.BDF.ReadRow("AUX001",V.Local.i2,V.Local.sReadRow)
+						F.Intrinsic.String.Split(V.Local.sReadRow,"|~|",V.Local.sReadRow)
+						F.Intrinsic.Control.If(V.Local.sReadRow(13),>,0)
+							F.Intrinsic.Math.Add(V.Local.i,1,V.Local.i)
+						F.Intrinsic.Control.EndIf
+				F.Intrinsic.Control.Next(V.Local.i2)
+				F.Intrinsic.Control.If(V.Local.i,>,1)
+					V.Local.i.Set(0)
+					F.Intrinsic.BDF.ReadRowCount("AUX001",V.Local.iRowCnt)
+					F.Intrinsic.Math.Sub(V.Local.iRowCnt,1,V.Local.iRowCnt)
+					F.Intrinsic.Control.For(V.Local.i,0,V.Local.iRowCnt,1)
+						F.Intrinsic.BDF.ReadRow("AUX001",V.Local.i,V.Local.sReadRow)
+						F.Intrinsic.String.Split(V.Local.sReadRow,"|~|",V.Local.sReadRow)
+						V.Local.sReadRow(13).Set(0.0000)
+						F.Intrinsic.String.Concat(V.Local.sReadRow(0),"|~|",V.Local.sReadRow(1),"|~|",V.Local.sReadRow(2),"|~|",V.Local.sReadRow(3),"|~|",V.Local.sReadRow(4),"|~|",V.Local.sReadRow(5),"|~|",V.Local.sReadRow(6),"|~|",V.Local.sReadRow(7),"|~|",V.Local.sReadRow(8),"|~|",V.Local.sReadRow(9),"|~|",V.Local.sReadRow(10),"|~|",V.Local.sReadRow(11),"|~|",V.Local.sReadRow(12),"|~|",V.Local.sReadRow(13),"|~|",V.Local.sReadRow(14),V.Local.sReadRow(16),"|~|",V.Local.sReadRow(15),"|~|",V.Local.sReadRow(16),"|~|",V.Local.sReadRow(17),"|~|",V.Local.sReadRow(18),V.Local.sWriteRow)
+						F.Intrinsic.BDF.WriteRow("Clone",V.Local.sWriteRow)
+					F.Intrinsic.Control.Next(V.Local.i)
+					F.Intrinsic.BDF.Save("Clone","AUX001")
+					V.Passed.777777.Set(1)
+					F.Intrinsic.UI.Msgbox("NO MIXED HEATS- Multiple Certs Not Allowed!","NO MIXED HEATS")
+				F.Intrinsic.Control.Else
+					F.Intrinsic.Control.End
+				F.Intrinsic.Control.EndIf
+			F.Intrinsic.Control.Else
+				F.Intrinsic.Control.End
+			F.Intrinsic.Control.EndIf
+		F.Intrinsic.Control.EndIf
+	F.Intrinsic.Control.EndIf
+	
+F.Intrinsic.Control.Else
+	
+	F.Intrinsic.Control.End
+F.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("Main_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_3973_WW_VALIDATE_LOTBIN.gas",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+Function.Intrinsic.Control.EndIf
+
+
+Program.Sub.Main.End
+
+
